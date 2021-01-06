@@ -1,0 +1,307 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "connections_office365_name": {
+            "defaultValue": "office365",
+            "type": "String"
+        },
+        "workflows_ProcessicaLADEV_name": {
+            "defaultValue": "ProcessicaLADEV",
+            "type": "String"
+        },
+        "sites_'$funcname'_externalid": {
+            "defaultValue": "/subscriptions/'$subscr'/resourceGroups/'$resnam'/providers/Microsoft.Web/sites/'$funcname'",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "name": "[parameters('connections_office365_name')]",
+            "location": "'$location'",
+            "kind": "V1",
+            "properties": {
+                "displayName": "'$usern'",
+                "customParameterValues": {},
+                "api": {
+                    "id": "[concat('/subscriptions/'$subscr'/providers/Microsoft.Web/locations/'$location'/managedApis/', parameters('connections_office365_name'))]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_ProcessicaLADEV_name')]",
+            "location": "'$location'",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/connections', parameters('connections_office365_name'))]"
+            ],
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "manual": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "schema": {
+                                    "$id": "http://example.com/example.json",
+                                    "$schema": "http://json-schema.org/draft-07/schema",
+                                    "properties": {
+                                        "appType": {
+                                            "$id": "#/properties/applicationType",
+                                            "description": "Metafield for workflow type definition.",
+                                            "title": "email-distribution",
+                                            "type": "string"
+                                        },
+                                        "clientId": {
+                                            "$id": "#/properties/clientId",
+                                            "description": "Processica ClientID, is required to verify users in the system.",
+                                            "title": "ClientID",
+                                            "type": "string"
+                                        },
+                                        "contacts": {
+                                            "$id": "#/properties/contacts",
+                                            "description": "An array of contacts to whom the letter will be sent",
+                                            "items": {
+                                                "properties": {
+                                                    "email": {
+                                                        "type": "string"
+                                                    },
+                                                    "firstName": {
+                                                        "type": "string"
+                                                    },
+                                                    "lastName": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "firstName",
+                                                    "lastName",
+                                                    "email"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "title": "Contacts",
+                                            "type": "array"
+                                        },
+                                        "executor": {
+                                            "$id": "#/properties/executor",
+                                            "description": "A person who executed the workflow.",
+                                            "title": "Executor",
+                                            "type": "string"
+                                        },
+                                        "html": {
+                                            "$id": "#/properties/html",
+                                            "description": "Represents the content of an HTML document.",
+                                            "title": "HTML",
+                                            "type": "string"
+                                        },
+                                        "subject": {
+                                            "$id": "#/properties/subject",
+                                            "description": "An email subject line.",
+                                            "title": "Subject",
+                                            "type": "string"
+                                        },
+                                        "url": {
+                                            "$id": "#/properties/clientId",
+                                            "description": "Link to the bridge application.",
+                                            "title": "URL",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "contacts",
+                                        "subject",
+                                        "html",
+                                        "executor",
+                                        "clientId"
+                                    ],
+                                    "type": "object"
+                                }
+                            },
+                            "operationOptions": "EnableSchemaValidation"
+                        }
+                    },
+                    "actions": {
+                        "Create_Power_BI_Report": {
+                            "runAfter": {
+                                "Store_Workflow": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": {
+                                    "runId": "@workflow()['run']['id']"
+                                },
+                                "function": {
+                                    "id": "[concat(parameters('sites_'$funcname'_externalid'), '/functions/power-bi-reports-post')]"
+                                }
+                            }
+                        },
+                        "Initialize_array_of_responses": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Respone",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Iterate_over_each_Contact_from_the_List": {
+                            "foreach": "@triggerBody()['contacts']",
+                            "actions": {
+                                "Append_to_responses_array": {
+                                    "runAfter": {
+                                        "Compose": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "AppendToArrayVariable",
+                                    "inputs": {
+                                        "name": "Respone",
+                                        "value": "@outputs('Compose')"
+                                    }
+                                },
+                                "Compose": {
+                                    "runAfter": {
+                                        "Get_output": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Compose",
+                                    "inputs": {
+                                        "email": "@body('Parse_JSON')?['email']",
+                                        "firstName": "@body('Parse_JSON')?['firstName']",
+                                        "lastName": "@body('Parse_JSON')?['lastName']",
+                                        "statusCode": "@body('Get_output')?['statusCode']"
+                                    }
+                                },
+                                "Get_output": {
+                                    "runAfter": {
+                                        "Send_an_email_(V2)": [
+                                            "Succeeded",
+                                            "Failed"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@outputs('Send_an_email_(V2)')",
+                                        "schema": {
+                                            "properties": {
+                                                "statusCode": {
+                                                    "type": "integer"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "Parse_JSON": {
+                                    "runAfter": {},
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@items('Iterate_over_each_Contact_from_the_List')",
+                                        "schema": {
+                                            "properties": {
+                                                "email": {
+                                                    "type": "string"
+                                                },
+                                                "firstName": {
+                                                    "type": "string"
+                                                },
+                                                "lastName": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "Send_an_email_(V2)": {
+                                    "runAfter": {
+                                        "Parse_JSON": [
+                                            "Succeeded",
+                                            "Failed"
+                                        ]
+                                    },
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "body": {
+                                            "Body": "<p>@{triggerBody()['html']}</p>",
+                                            "Subject": "@triggerBody()['subject']",
+                                            "To": "@body('Parse_JSON')?['email']"
+                                        },
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['office365']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "path": "/v2/Mail"
+                                    },
+                                    "operationOptions": "DisableAsyncPattern, DisableAutomaticDecompression"
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_array_of_responses": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Store_Workflow": {
+                            "runAfter": {
+                                "Iterate_over_each_Contact_from_the_List": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": {
+                                    "appState": "@triggerBody()",
+                                    "emailResponses": "@variables('Respone')",
+                                    "workflowState": {
+                                        "name": "@workflow()['name']",
+                                        "runId": "@workflow()['run']['id']",
+                                        "workflowId": "@workflow()['id']"
+                                    }
+                                },
+                                "function": {
+                                    "id": "[concat(parameters('sites_'$funcname'_externalid'), '/functions/workflows-post')]"
+                                }
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "office365": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', parameters('connections_office365_name'))]",
+                                "connectionName": "office365",
+                                "id": "/subscriptions/'$subscr'/providers/Microsoft.Web/locations/'$location'/managedApis/office365"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
